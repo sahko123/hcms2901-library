@@ -8,7 +8,7 @@
 
 #ifndef HCMS39xx_H
 #define HCMS39xx_H
-
+#define MAX_CHARS 4
 #include "Arduino.h"
 
 class HCMS39xx { 
@@ -40,6 +40,11 @@ public:
   void setExternalPrescaleNormal();
   void setSimultaneousMode();
   void setSerialMode();
+  void printBuffer(const char* s);
+  void refreshDisplay();
+  void printDirectBufferOverlay(const uint8_t* pattern, uint8_t length);
+  void printDirectBufferXOR(const uint8_t* pattern, uint8_t length);
+  uint8_t byteBuffer(uint8_t index);
 
 private:
   enum POWER_MODE {WAKEUP = 0x40, SLEEP = 0};
@@ -55,12 +60,15 @@ private:
   uint8_t _data_pin, _clk_pin, _rs_pin, _ce_pin, _blank_pin, _osc_select_pin; 
   uint8_t _control_word0;
   uint8_t _control_word1; 
+  uint8_t* _displayBuffer;
 
   void setupDotData();
   void setupControlData();
   void endTransmission();
-  void sendFontData(const uint8_t *b, uint8_t length);
+  void sendFontData(const uint8_t *b, uint8_t length,  uint8_t char_num);
+  void loadFontDataToBuffer(const uint8_t *b, uint8_t char_position);
   void sendByte(uint8_t b);   
+  void copyCharToBuffer(uint8_t charIndex, const uint8_t* fontPtr);
 };
 
 #endif

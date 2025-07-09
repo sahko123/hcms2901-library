@@ -20,15 +20,19 @@ HCMS39xx::HCMS39xx(uint8_t num_chars, uint8_t data_pin, uint8_t rs_pin, uint8_t 
     _blank_pin      = blank_pin; 
     _osc_select_pin = osc_select_pin; 
 
-    pinMode(_data_pin, OUTPUT); 
-    digitalWrite(_clk_pin, LOW); 
+    _displayBuffer = new uint8_t[_num_chars * COLUMNS_PER_CHAR];
+
+    pinMode(_data_pin, OUTPUT);
     pinMode(_clk_pin, OUTPUT); 
-    pinMode(_rs_pin, OUTPUT);
-    digitalWrite(_ce_pin, HIGH); 
+    pinMode(_rs_pin, OUTPUT); 
     pinMode(_ce_pin, OUTPUT); 
+
+    digitalWrite(_clk_pin, LOW); 
+    digitalWrite(_ce_pin, HIGH); 
+    
     if (_blank_pin != NO_PIN) {
-        digitalWrite(_blank_pin, HIGH); // default is for display to be blanked when initialized
         pinMode(_blank_pin, OUTPUT); 
+        digitalWrite(_blank_pin, HIGH); // default is for display to be blanked when initialized
     }
     if (_osc_select_pin != NO_PIN) {
         pinMode(_osc_select_pin, OUTPUT); 
@@ -56,20 +60,7 @@ void HCMS39xx::begin() {
     setSimultaneousMode(); // This has the side-effect of setting the default value for control word 1
 }
 
-void HCMS39xx::print(const char* s) {
-    uint8_t i; 
 
-    setupDotData();
-    for (i = 0; i < _num_chars; i++) { // Don't loop for more chars than defined for the display object
-        if (s[i] != 0) {
-        sendFontData(font5x7 + (uint8_t)(s[i] - _first_ascii_index) * (uint16_t)COLUMNS_PER_CHAR, COLUMNS_PER_CHAR);
-        }
-        else  { // If we find a NULL terminator, then break out of loop
-            break;
-        }
-    }
-    endTransmission();
-}
 
 void HCMS39xx::print(int j) {
     char s[7]; // Largest  integer is 5 digits plus sign character plus null pointer
@@ -117,13 +108,82 @@ void HCMS39xx::printDirect(const uint8_t* s, uint8_t len) {
 }
 
 void HCMS39xx::clear() {
+    memset(_displayBuffer, 0, _num_chars * COLUMNS_PER_CHAR);
+
+    //setupDotData(); // No need to wipe display since re-writing it does that anyway
+    //for (uint8_t i = 0; i < _num_chars * COLUMNS_PER_CHAR; i++) {
+    //    sendByte(0);
+    //}
+    //endTransmission(); 
+}
+
+void HCMS39xx::print(const char* s) {
     uint8_t i; 
 
-    setupDotData();
-    for (i = 0; i < _num_chars * COLUMNS_PER_CHAR; i++) {
-        sendByte(0);
+    //setupDotData(); // Start transmission
+    for (i = 0; i < _num_chars; i++) { // Don't loop for more chars than defined for the display object
+        if (s[i] != 0) {
+        sendFontData(font5x7 + (uint8_t)(s[i] - _first_ascii_index) * (uint16_t)COLUMNS_PER_CHAR, COLUMNS_PER_CHAR, i);
+        }
+        else  { // If we find a NULL terminator, then break out of loop
+            break;
+        }
     }
-    endTransmission(); 
+    //endTransmission();
+}
+
+void HCMS39xx::printBuffer(const char* s) {
+    // Clear buffer first (optional, depending on overlay usage)
+    memset(_displayBuffer, 0, _num_chars * COLUMNS_PER_CHAR);
+
+    for (uint8_t charPos = 0; charPos < _num_chars; charPos++) {
+        // Stop if end of string reached
+        if (s[charPos] == '\0') break;
+
+        // Calculate font table pointer
+        const uint8_t* fontPtr = font5x7 + 5 + ((uint8_t)(s[charPos] - _first_ascii_index)) * COLUMNS_PER_CHAR;
+
+        for (uint8_t col = 0; col < COLUMNS_PER_CHAR; col++) {
+            // Read font column from PROGMEM
+            uint8_t fontColumn = pgm_read_byte(&fontPtr[col]);
+
+            // Calculate index in display buffer
+            uint8_t bufferIndex = charPos * COLUMNS_PER_CHAR + col;
+
+            // Store font column into buffer
+            _displayBuffer[bufferIndex] = fontColumn;
+        }
+    }
+}
+
+void HCMS39xx::copyCharToBuffer(uint8_t charIndex, const uint8_t* fontPtr) {
+    for (uint8_t col = 0; col < COLUMNS_PER_CHAR; col++) {
+        uint8_t fontColumn = pgm_read_byte(&fontPtr[col]);
+        uint8_t index = charIndex * COLUMNS_PER_CHAR + col;
+        _displayBuffer[index] = fontColumn;
+    }
+}
+
+void HCMS39xx::printDirectBufferOverlay(const uint8_t* s, uint8_t len) {
+    for (uint8_t i = 0; i < len; i++) {
+        _displayBuffer[i] |= s[i];   // store direct pattern into buffer
+    }
+}
+
+void HCMS39xx::printDirectBufferXOR(const uint8_t* s, uint8_t len) {
+    for (uint8_t i = 0; i < len; i++) {
+        _displayBuffer[i] ^= s[i];   // store direct pattern into buffer
+    }
+}
+
+void HCMS39xx::refreshDisplay() {
+    uint8_t col;
+    setupDotData();
+
+    for (col = 0; col < _num_chars * COLUMNS_PER_CHAR; col++) {
+        sendByte(_displayBuffer[col]);
+    }
+    endTransmission();
 }
 
 void HCMS39xx::displaySleep() {
@@ -267,33 +327,55 @@ void HCMS39xx::setupDotData() {
 }
 
 void HCMS39xx::setupControlData() {
-    digitalWrite(_clk_pin, HIGH); 
-    digitalWrite(_rs_pin, HIGH); 
-    digitalWrite(_ce_pin, LOW); 
+    digitalWriteFast(_clk_pin, HIGH); 
+    digitalWriteFast(_rs_pin, HIGH); 
+    digitalWriteFast(_ce_pin, LOW); 
 }
 
 void HCMS39xx::endTransmission() {
-    digitalWrite(_ce_pin, HIGH); 
-    digitalWrite(_clk_pin, LOW);    
+    digitalWriteFast(_ce_pin, HIGH);
+    delayMicroseconds(1);
+    digitalWriteFast(_clk_pin, LOW); 
+    
 }
 
-void HCMS39xx::sendFontData(const uint8_t *b, uint8_t length) {
+void HCMS39xx::sendFontData(const uint8_t *b, uint8_t length,  uint8_t char_num) {
     uint8_t i; 
     uint8_t data; 
 
     for (i = 0; i < length; i++) {
         data = pgm_read_byte(&b[i]);
-        sendByte(data); 
-     }
+        //sendByte(data);
+        _displayBuffer[(char_num * 5) + i] = data;
+    }
+}
+
+uint8_t HCMS39xx::byteBuffer(uint8_t index) {
+    return _displayBuffer[index];
+}
+
+void HCMS39xx::loadFontDataToBuffer(const uint8_t *b, uint8_t length) {
+    uint8_t i; 
+    uint8_t data; 
+
+    //for (i = 0; i < length; i++) {
+    //    data = pgm_read_byte(&b[i]);
+    //    _displayBuffer[i] =data; 
+    //}
+    _displayBuffer[0] = 0x7F;  // column 1 of char 0
+    _displayBuffer[1] = 0x7F;  // column 2 of char 0
+    _displayBuffer[2] = 0x7F;  // column 3 of char 0
+    _displayBuffer[3] = 0x7F;  // column 4 of char 0
+    _displayBuffer[4] = 0x7F;  // column 5 of char 0
 }
 
 void HCMS39xx::sendByte(uint8_t b) {
     uint8_t i; 
 
     for (i = 0; i < 8; i++) {
-        digitalWrite(_clk_pin, LOW); 
-        digitalWrite(_data_pin, b & 0x80); // msb first
-        digitalWrite(_clk_pin, HIGH); 
+        digitalWriteFast(_clk_pin, LOW);
+        digitalWriteFast(_data_pin, (b & 0x80)); // msb first
+        digitalWriteFast(_clk_pin, HIGH);
         b = b << 1; 
     }
 }

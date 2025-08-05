@@ -61,6 +61,10 @@ private:
   uint8_t _control_word0;
   uint8_t _control_word1; 
   uint8_t* _displayBuffer;
+  GPIO_TypeDef* _clkPort;
+  GPIO_TypeDef* _dataPort;
+  uint32_t _clkMask;
+  uint32_t _dataMask;
 
   void setupDotData();
   void setupControlData();

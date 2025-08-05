@@ -20,6 +20,11 @@ HCMS39xx::HCMS39xx(uint8_t num_chars, uint8_t data_pin, uint8_t rs_pin, uint8_t 
     _blank_pin      = blank_pin; 
     _osc_select_pin = osc_select_pin; 
 
+    _clkPort  = digitalPinToPort(_clk_pin);
+    _dataPort = digitalPinToPort(_data_pin);
+    _clkMask  = digitalPinToBitMask(_clk_pin);
+    _dataMask = digitalPinToBitMask(_data_pin);
+
     _displayBuffer = new uint8_t[_num_chars * COLUMNS_PER_CHAR];
 
     pinMode(_data_pin, OUTPUT);
@@ -195,7 +200,7 @@ void HCMS39xx::displaySleep() {
     }
     else { // Serial mode, then need to send for each driver chip
         for (int i = 0; i < _num_chars / CHARS_PER_DEVICE; i++) {
-            sendByte(_control_word0); 
+            sendByte(_control_word0);
         }
     }
     endTransmission();
@@ -218,7 +223,7 @@ void HCMS39xx::displayWakeup() {
 
 void HCMS39xx::displayBlank() {
     if (_blank_pin != NO_PIN) {
-        digitalWrite(_blank_pin, HIGH); 
+        digitalWrite(_blank_pin, HIGH);
     }
 }
 
@@ -327,15 +332,15 @@ void HCMS39xx::setupDotData() {
 }
 
 void HCMS39xx::setupControlData() {
-    digitalWriteFast(_clk_pin, HIGH); 
-    digitalWriteFast(_rs_pin, HIGH); 
-    digitalWriteFast(_ce_pin, LOW); 
+    digitalWrite(_clk_pin, HIGH); 
+    digitalWrite(_rs_pin, HIGH); 
+    digitalWrite(_ce_pin, LOW); 
 }
 
 void HCMS39xx::endTransmission() {
-    digitalWriteFast(_ce_pin, HIGH);
+    digitalWrite(_ce_pin, HIGH);
     delayMicroseconds(1);
-    digitalWriteFast(_clk_pin, LOW); 
+    digitalWrite(_clk_pin, LOW); 
     
 }
 
@@ -373,9 +378,29 @@ void HCMS39xx::sendByte(uint8_t b) {
     uint8_t i; 
 
     for (i = 0; i < 8; i++) {
-        digitalWriteFast(_clk_pin, LOW);
-        digitalWriteFast(_data_pin, (b & 0x80)); // msb first
-        digitalWriteFast(_clk_pin, HIGH);
+        digitalWrite(_clk_pin, LOW);
+        digitalWrite(_data_pin, (b & 0x80)); // msb first
+        digitalWrite(_clk_pin, HIGH);
         b = b << 1; 
     }
 }
+
+
+/*
+void HCMS39xx::sendByte(uint8_t b) {
+    
+
+    for (int i = 0; i < 8; i++) {
+        // CLK LOW
+        _clkPort->BRR = _clkMask;
+
+        // DATA: write MSB
+        _dataPort->BSRR = (_dataMask << ((!(b & 0x80)) * 16));
+
+        // CLK HIGH
+        _clkPort->BSRR = _clkMask;
+
+        b <<= 1;
+    }
+}
+    */
